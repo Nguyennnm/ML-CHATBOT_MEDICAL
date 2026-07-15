@@ -532,6 +532,84 @@ button:active {
   margin-top: 10px;
 }
 
+.message-sources {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.message-sources summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.source-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.source-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+
+.source-row:last-child {
+  border-bottom: 0;
+}
+
+.source-row > span:first-child {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.source-row > span:nth-child(2) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.source-row svg {
+  margin-top: 4px;
+  color: var(--accent-strong);
+}
+
+.source-title {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.source-label,
+.source-quote {
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.source-quote {
+  color: var(--ink-soft);
+}
+
 .typing-body {
   display: inline-flex;
   align-items: center;
