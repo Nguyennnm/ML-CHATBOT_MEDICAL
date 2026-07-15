@@ -1,0 +1,21 @@
+{
+  "name": "medical-chatbot-ml",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
+    "client:dev": "npm run dev -w client",
+    "server:dev": "npm run dev -w server",
+    "db:migrate": "npm run db:migrate -w server",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
