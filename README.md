@@ -1,121 +1,77 @@
 # ML-CHATBOT_MEDICAL
 
-Medical QA chatbot for the final project of "Nhap mon hoc may".
+Đây là repository cho đồ án cuối kỳ môn **Nhập môn học máy**: xây dựng hệ thống chatbot hỏi--đáp y tế tiếng Việt. Dự án gồm phần giao diện web, máy chủ API, cơ sở dữ liệu và các notebook/mã nguồn phục vụ thử nghiệm mô hình.
 
-The repository contains the complete web demo and the team's model work:
+## Thành phần chính
 
-- React + Vite frontend for the chatbot UI.
-- Node.js + Express backend organized with MVC.
-- SQLite database for users, conversations, messages, and sources.
-- Auth flow with login/register and per-user chat history.
-- SSE streaming endpoint for realtime assistant responses.
-- RAG integration boundary for the medical QA model.
-- Model notebooks and scripts for BM25, RAG, and Qwen2 fine-tuning.
-- Report material and UI screenshots.
+- **Giao diện:** React + Vite, hiển thị màn hình đăng nhập, khung chat, lịch sử hội thoại và gợi ý bản đồ.
+- **Máy chủ API:** Node.js + Express theo kiến trúc MVC, xử lý xác thực, hội thoại, lưu dữ liệu và kết nối RAG API.
+- **Cơ sở dữ liệu:** SQLite, dùng để lưu tài khoản, hội thoại, tin nhắn và metadata nguồn tham khảo.
+- **Mô hình:** các thử nghiệm BM25, RAG và fine-tuning Qwen2.
 
-## Project Tree
+## Cây thư mục chính
 
 ```text
 ML-CHATBOT_MEDICAL/
-|-- client/                         # React + Vite frontend
-|   |-- index.html
-|   |-- package.json
-|   |-- vite.config.js
-|   `-- src/
-|       |-- App.jsx                 # Main React app state and layout
-|       |-- main.jsx                # React entry point
-|       |-- styles.css              # Global UI styling
-|       |-- lib/
-|       |   `-- api.js              # Frontend API client
-|       `-- components/
-|           |-- AuthPanel.jsx       # Login/register screen
-|           |-- Sidebar.jsx         # User card, maps links, chat history
-|           |-- ChatWindow.jsx      # Main chat surface
-|           |-- MessageBubble.jsx   # Message rendering and sources
-|           |-- Composer.jsx        # Question input
-|           |-- EmptyState.jsx
-|           |-- ChatHeader.jsx
-|           `-- TypingIndicator.jsx
-|
-|-- server/                         # Express MVC backend
-|   |-- package.json
-|   |-- .env.example                # Example backend environment variables
-|   `-- src/
-|       |-- server.js               # Starts HTTP server
-|       |-- app.js                  # Express app config and middleware
-|       |-- config/
-|       |   |-- env.js              # Environment config
-|       |   `-- database.js         # SQLite connection
-|       |-- database/
-|       |   `-- migrate.js          # SQLite schema migration
-|       |-- routes/                 # REST and SSE route definitions
-|       |-- controllers/            # Request/response handling
-|       |-- services/               # Business logic and RAG API calls
-|       |-- models/                 # SQLite data access layer
-|       |-- middlewares/            # Auth and error middleware
-|       `-- utils/
-|
-|-- Model/                          # ML notebooks and model work
-|   |-- BM25/
-|   |-- Rag/
-|   `-- Qwen2_fine_tuned/
-|
-|-- docs/                           # Report and architecture documents
-|   |-- architecture/
-|   |-- figures/                    # Report screenshots
-|   |-- report-chapter5.tex
-|   |-- report-chapter6.tex
-|   `-- report-shortened.tex
-|
-|-- EDA.ipynb
-|-- package.json                    # Root workspace scripts
-|-- package-lock.json
-|-- .gitignore
+|-- client/        # Giao diện React + Vite
+|-- server/        # Máy chủ API Node.js + Express MVC
+|-- Model/         # Notebook, mã nguồn và tệp mô hình
+|-- EDA.ipynb      # Notebook phân tích dữ liệu tổng quan
+|-- package.json   # Script chạy toàn bộ dự án
 `-- README.md
 ```
 
-## Important Files
+## Các file quan trọng
 
-| Path | Purpose |
-| --- | --- |
-| `package.json` | Root npm workspace and command scripts. |
-| `client/src/App.jsx` | Main frontend state: auth, conversations, messages, streaming. |
-| `client/src/lib/api.js` | Wrapper for backend API calls and SSE stream handling. |
-| `client/src/components/AuthPanel.jsx` | Login/register UI. |
-| `client/src/components/Sidebar.jsx` | Conversation list, rename/delete actions, nearby maps links. |
-| `server/src/app.js` | Express setup, CORS, JSON middleware, routes, error handling. |
-| `server/src/config/env.js` | Reads runtime config from environment variables. |
-| `server/src/database/migrate.js` | Creates/updates SQLite tables. |
-| `server/src/services/authService.js` | Password hashing, login/register, token creation. |
-| `server/src/services/chatService.js` | User turn creation, RAG response handling, fallback reply. |
-| `server/src/services/ragApiService.js` | HTTP client for the external Medical RAG API. |
-| `server/src/middlewares/authenticate.js` | Protects user-specific endpoints. |
-| `server/.env.example` | Template for local backend configuration. |
-| `Model/Rag/README.md` | Notes for the RAG model pipeline. |
-| `docs/report-shortened.tex` | Shortened report with updated chapter 5 and chapter 6. |
+```text
+client/src/App.jsx                         # Điều phối trạng thái chính của giao diện
+client/src/lib/api.js                      # Gọi API máy chủ và xử lý luồng trả lời
+client/src/components/AuthPanel.jsx        # Giao diện đăng nhập/đăng ký
+client/src/components/Sidebar.jsx          # Sidebar, lịch sử hội thoại, liên kết bản đồ
+client/src/components/ChatWindow.jsx       # Khung chat chính
+client/src/components/MessageBubble.jsx    # Hiển thị tin nhắn và nguồn tham khảo
 
-## Requirements
+server/src/app.js                          # Cấu hình Express app
+server/src/server.js                       # Khởi động máy chủ API
+server/src/config/env.js                   # Đọc biến môi trường
+server/src/config/database.js              # Kết nối SQLite
+server/src/database/migrate.js             # Tạo/cập nhật cấu trúc cơ sở dữ liệu
+server/src/controllers/                    # Bộ điều khiển xử lý request/response
+server/src/services/                       # Logic nghiệp vụ, xác thực, chat, RAG API
+server/src/models/                         # Truy vấn cơ sở dữ liệu
+server/src/routes/                         # Định nghĩa các tuyến API
+server/src/middlewares/authenticate.js     # Middleware xác thực token
+server/.env.example                        # Mẫu cấu hình môi trường máy chủ API
 
-- Node.js 20+ recommended.
-- npm 10+ recommended.
-- A running Medical RAG API is optional for UI/backend testing. If it is not configured, the backend returns a friendly fallback message.
+Model/BM25/                                # Thử nghiệm BM25
+Model/Rag/                                 # Quy trình RAG
+Model/Qwen2_fine_tuned/                    # Fine-tuning Qwen2
+```
 
-## Quick Start
+## Yêu cầu môi trường
 
-Clone the repository:
+- Node.js 20 trở lên
+- npm 10 trở lên
+- Dịch vụ RAG API nếu muốn chatbot trả lời bằng mô hình thật
+
+Nếu chưa cấu hình RAG API, máy chủ API vẫn chạy được và trả về thông báo dự phòng khi người dùng gửi câu hỏi.
+
+## Cài đặt và chạy trên máy cá nhân
+
+Sao chép mã nguồn:
 
 ```bash
 git clone https://github.com/Nguyennnm/ML-CHATBOT_MEDICAL.git
 cd ML-CHATBOT_MEDICAL
 ```
 
-Install all workspace dependencies:
+Cài các gói phụ thuộc:
 
 ```bash
 npm install
 ```
 
-Create backend environment file:
+Tạo file môi trường cho máy chủ API:
 
 ```bash
 # Windows PowerShell
@@ -125,7 +81,7 @@ Copy-Item server/.env.example server/.env
 cp server/.env.example server/.env
 ```
 
-Edit `server/.env`:
+Cấu hình file `server/.env`:
 
 ```bash
 PORT=4000
@@ -138,94 +94,92 @@ AUTH_TOKEN_SECRET=change-this-to-a-long-random-string
 AUTH_TOKEN_TTL_SECONDS=604800
 ```
 
-Run database migration:
+Chạy migration tạo cơ sở dữ liệu:
 
 ```bash
 npm run db:migrate
 ```
 
-Start frontend and backend together:
+Chạy giao diện và máy chủ API cùng lúc:
 
 ```bash
 npm run dev
 ```
 
-Default local URLs:
+Địa chỉ mặc định:
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:4000`
-- Health check: `http://localhost:4000/api/health`
+```text
+Giao diện:       http://localhost:5173
+Máy chủ API:     http://localhost:4000
+Kiểm tra API:    http://localhost:4000/api/health
+```
 
-## Command Line Reference
+## Các lệnh thường dùng
 
 ```bash
-# Install dependencies for root, client, and server workspaces
+# Cài các gói phụ thuộc
 npm install
 
-# Run SQLite migration
+# Tạo/cập nhật cơ sở dữ liệu SQLite
 npm run db:migrate
 
-# Start frontend and backend concurrently
+# Chạy giao diện và máy chủ API
 npm run dev
 
-# Start frontend only
+# Chạy giao diện
 npm run client:dev
 
-# Start backend only
+# Chạy máy chủ API
 npm run server:dev
 
-# Build frontend production assets
+# Đóng gói giao diện
 npm run build
 
-# Start backend in production mode
+# Chạy máy chủ API ở chế độ triển khai
 npm run start
 ```
 
-Useful checks:
+## API chính
 
-```bash
-# Check backend health
-curl http://localhost:4000/api/health
+API không yêu cầu đăng nhập:
 
-# Inspect git status
-git status --short --branch
+```text
+GET  /api/health
+POST /api/auth/register
+POST /api/auth/login
 ```
 
-## API Overview
+API yêu cầu token:
 
-Public:
+```text
+GET    /api/auth/me
+GET    /api/conversations
+POST   /api/conversations
+PATCH  /api/conversations/:id
+DELETE /api/conversations/:id
+GET    /api/conversations/:id/messages
+POST   /api/chat
+POST   /api/chat/stream
+```
 
-- `GET /api/health`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-
-Authenticated:
-
-- `GET /api/auth/me`
-- `GET /api/conversations`
-- `POST /api/conversations`
-- `PATCH /api/conversations/:id`
-- `DELETE /api/conversations/:id`
-- `GET /api/conversations/:id/messages`
-- `POST /api/chat`
-- `POST /api/chat/stream`
-
-The frontend sends the auth token with:
+Giao diện gửi token theo header:
 
 ```text
 Authorization: Bearer <token>
 ```
 
-## Database
+## Cơ sở dữ liệu
 
-SQLite is used for the demo. The migration creates these main tables:
+SQLite được dùng cho bản demo. Migration hiện tạo các bảng chính:
 
-- `users`
-- `conversations`
-- `messages`
-- `medical_sources`
+```text
+users
+conversations
+messages
+medical_sources
+```
 
-Local database files are ignored by Git:
+Các file cơ sở dữ liệu local không được đưa lên Git:
 
 ```text
 server/data/*.sqlite
@@ -233,47 +187,18 @@ server/data/*.sqlite-shm
 server/data/*.sqlite-wal
 ```
 
-## Model Work
+## Ghi chú về mô hình
+
+Máy chủ API không nhúng trực tiếp mô hình vào Node.js. Mô hình RAG được chạy như một dịch vụ API riêng, sau đó máy chủ gọi qua biến môi trường:
 
 ```text
-Model/BM25              BM25 retrieval experiments
-Model/Rag               RAG pipeline notebooks and download helpers
-Model/Qwen2_fine_tuned  Qwen2 fine-tuning notebooks and adapter files
+RAG_API_BASE_URL
 ```
 
-The web backend expects the model to be exposed as an external HTTP API. Update `RAG_API_BASE_URL` in `server/.env` when the RAG service URL changes.
+Khi URL dịch vụ RAG thay đổi, chỉ cần cập nhật `server/.env` rồi khởi động lại máy chủ API.
 
-## Report
+## Ghi chú bảo mật
 
-Report-related files are stored in `docs/`:
-
-- `docs/report-chapter5.tex`: shortened deployment chapter.
-- `docs/report-chapter6.tex`: conclusion chapter.
-- `docs/report-shortened.tex`: combined shortened report.
-- `docs/figures/`: screenshots used by the report.
-
-## Deployment Notes
-
-The demo was designed to run frontend and backend as separate processes:
-
-- Frontend process: Vite preview/build output.
-- Backend process: Express API.
-- Process manager: PM2.
-- Database path on VPS can be configured with `DB_PATH`.
-
-Example PM2 commands:
-
-```bash
-pm2 list
-pm2 logs ml-web-api
-pm2 logs ml-web-client
-pm2 restart ml-web-api
-pm2 restart ml-web-client
-```
-
-## Security Notes
-
-- Do not commit `server/.env`.
-- Change `AUTH_TOKEN_SECRET` before deployment.
-- Use HTTPS, domain, reverse proxy, rate limiting, and database backup for a real production deployment.
-- Medical answers are for reference only and must not replace professional diagnosis or treatment.
+- Không commit file `server/.env`.
+- Cần đổi `AUTH_TOKEN_SECRET` trước khi triển khai.
+- Câu trả lời y tế chỉ mang tính tham khảo, không thay thế chẩn đoán hoặc chỉ định điều trị của bác sĩ.
