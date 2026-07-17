@@ -32,7 +32,7 @@ except ImportError:
 HF_REPO_ID = "ynguyen1010/medical_vietnamese_datasets"
 HF_CONFIG_NAME = "tfidf"
 HF_SPLIT = "train"
-DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "model1_tfidf_hf"
+DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "model_bm25"
 
 
 # Stopwords must match the preprocessing notebook as closely as possible.
