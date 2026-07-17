@@ -22,86 +22,134 @@ function createRagUnavailableReply(error) {
   ].join("\n\n");
 }
 
-export const ChatService = {
-  async sendMessage({ message, conversationId }) {
-    const cleanedMessage = String(message || "").trim();
+function validateMessage(message) {
+  const cleanedMessage = String(message || "").trim();
 
-    if (!cleanedMessage) {
-      throw new HttpError(400, "Message is required");
-    }
+  if (!cleanedMessage) {
+    throw new HttpError(400, "Message is required");
+  }
 
-    if (cleanedMessage.length > MAX_MESSAGE_LENGTH) {
-      throw new HttpError(400, `Message must be ${MAX_MESSAGE_LENGTH} characters or fewer`);
-    }
+  if (cleanedMessage.length > MAX_MESSAGE_LENGTH) {
+    throw new HttpError(400, `Message must be ${MAX_MESSAGE_LENGTH} characters or fewer`);
+  }
 
-    let conversation = conversationId ? ConversationModel.findById(conversationId) : null;
+  return cleanedMessage;
+}
 
-    if (conversationId && !conversation) {
-      throw new HttpError(404, "Conversation not found");
-    }
+function createUserTurn({ message, conversationId, userId }) {
+  const cleanedMessage = validateMessage(message);
+  let conversation = conversationId ? ConversationModel.findById(conversationId, userId) : null;
 
-    if (!conversation) {
-      conversation = ConversationModel.create({ title: createTitle(cleanedMessage) });
-    }
+  if (conversationId && !conversation) {
+    throw new HttpError(404, "Conversation not found");
+  }
 
-    const userMessage = MessageModel.create({
-      conversationId: conversation.id,
-      role: "user",
-      content: cleanedMessage
+  if (!conversation) {
+    conversation = ConversationModel.create({ title: createTitle(cleanedMessage), userId });
+  }
+
+  const userMessage = MessageModel.create({
+    conversationId: conversation.id,
+    role: "user",
+    content: cleanedMessage
+  });
+
+  return {
+    conversation,
+    userMessage,
+    cleanedMessage
+  };
+}
+
+async function resolveAssistant({ cleanedMessage, conversationId }) {
+  let mode = "rag-live";
+  let ragResult;
+
+  try {
+    ragResult = await RagApiService.chat({
+      query: cleanedMessage,
+      sessionId: conversationId
     });
-
-    let mode = "rag-live";
-    let ragResult;
-
-    try {
-      ragResult = await RagApiService.chat({
-        query: cleanedMessage,
-        sessionId: conversation.id
-      });
-    } catch (error) {
-      mode = "rag-unavailable";
-      ragResult = {
-        original_query: cleanedMessage,
-        rewritten_query: cleanedMessage,
-        fixed_query: cleanedMessage,
-        answer: createRagUnavailableReply(error),
-        sources: [],
-        cache_hit: false,
-        success: false,
-        error: {
-          message: error.message,
-          statusCode: error.statusCode,
-          details: error.details
-        }
-      };
-    }
-
-    const sources = normalizeSources(ragResult.sources);
-    const assistantMessage = MessageModel.create({
-      conversationId: conversation.id,
-      role: "assistant",
-      content: ragResult.answer || "Mô hình chưa trả về nội dung trả lời.",
-      meta: {
-        mode,
-        sources,
-        success: Boolean(ragResult.success),
-        cacheHit: Boolean(ragResult.cache_hit),
-        originalQuery: ragResult.original_query,
-        rewrittenQuery: ragResult.rewritten_query,
-        fixedQuery: ragResult.fixed_query,
-        error: ragResult.error
+  } catch (error) {
+    mode = "rag-unavailable";
+    ragResult = {
+      original_query: cleanedMessage,
+      rewritten_query: cleanedMessage,
+      fixed_query: cleanedMessage,
+      answer: createRagUnavailableReply(error),
+      sources: [],
+      cache_hit: false,
+      success: false,
+      error: {
+        message: error.message,
+        statusCode: error.statusCode,
+        details: error.details
       }
-    });
+    };
+  }
 
-    const updatedConversation = ConversationModel.touch(conversation.id);
-
-    return {
-      conversation: updatedConversation,
-      messages: [userMessage, assistantMessage],
-      assistantMessage,
+  const sources = normalizeSources(ragResult.sources);
+  return {
+    content: ragResult.answer || "Mô hình chưa trả về nội dung trả lời.",
+    meta: {
+      mode,
       sources,
       success: Boolean(ragResult.success),
-      mode
+      cacheHit: Boolean(ragResult.cache_hit),
+      originalQuery: ragResult.original_query,
+      rewrittenQuery: ragResult.rewritten_query,
+      fixedQuery: ragResult.fixed_query,
+      error: ragResult.error
+    },
+    sources,
+    success: Boolean(ragResult.success),
+    mode
+  };
+}
+
+function saveAssistantMessage({ conversationId, userId, content, meta }) {
+  const assistantMessage = MessageModel.create({
+    conversationId,
+    role: "assistant",
+    content,
+    meta
+  });
+
+  const updatedConversation = ConversationModel.touch(conversationId, userId);
+
+  return {
+    conversation: updatedConversation,
+    assistantMessage
+  };
+}
+
+export const ChatService = {
+  createUserTurn,
+
+  resolveAssistant,
+
+  saveAssistantMessage,
+
+  async sendMessage({ message, conversationId, userId }) {
+    const turn = createUserTurn({ message, conversationId, userId });
+    const assistant = await resolveAssistant({
+      cleanedMessage: turn.cleanedMessage,
+      conversationId: turn.conversation.id
+    });
+    const saved = saveAssistantMessage({
+      conversationId: turn.conversation.id,
+      userId,
+      content: assistant.content,
+      meta: assistant.meta
+    });
+
+    return {
+      conversation: saved.conversation,
+      messages: [turn.userMessage, saved.assistantMessage],
+      assistantMessage: saved.assistantMessage,
+      sources: assistant.sources,
+      success: assistant.success,
+      mode: assistant.mode
     };
   }
 };

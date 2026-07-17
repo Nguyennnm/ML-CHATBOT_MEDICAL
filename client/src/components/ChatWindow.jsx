@@ -5,6 +5,7 @@ import { TypingIndicator } from "./TypingIndicator.jsx";
 
 export function ChatWindow({ messages, isSending }) {
   const bottomRef = useRef(null);
+  const hasStreamingMessage = messages.some((message) => message.meta?.isStreaming);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -17,7 +18,7 @@ export function ChatWindow({ messages, isSending }) {
       ) : (
         messages.map((message) => <MessageBubble key={message.id} message={message} />)
       )}
-      {isSending ? <TypingIndicator /> : null}
+      {isSending && !hasStreamingMessage ? <TypingIndicator /> : null}
       <div ref={bottomRef} />
     </main>
   );

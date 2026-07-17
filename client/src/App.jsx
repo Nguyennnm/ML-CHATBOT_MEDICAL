@@ -1,13 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { api } from "./lib/api.js";
+import { api, setAuthToken } from "./lib/api.js";
+import { AuthPanel } from "./components/AuthPanel.jsx";
 import { ChatHeader } from "./components/ChatHeader.jsx";
 import { ChatWindow } from "./components/ChatWindow.jsx";
 import { Composer } from "./components/Composer.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 
+const AUTH_STORAGE_KEY = "medqa-session";
+
+function upsertConversation(conversations, conversation) {
+  if (!conversation) {
+    return conversations;
+  }
+
+  const existing = conversations.find((item) => item.id === conversation.id);
+  const nextConversation = {
+    ...existing,
+    ...conversation,
+    messageCount: conversation.messageCount ?? existing?.messageCount ?? 1
+  };
+
+  return [
+    nextConversation,
+    ...conversations.filter((item) => item.id !== conversation.id)
+  ];
+}
+
+function readStoredSession() {
+  try {
+    const rawSession = localStorage.getItem(AUTH_STORAGE_KEY);
+    return rawSession ? JSON.parse(rawSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(session) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearStoredSession() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
 export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
+  const [session, setSession] = useState(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -16,6 +57,28 @@ export default function App() {
   const [error, setError] = useState("");
 
   const activeConversationId = activeConversation?.id;
+
+  async function loadInitialConversations(cancelledRef = { current: false }) {
+    const data = await api.listConversations();
+
+    if (cancelledRef.current) {
+      return;
+    }
+
+    setConversations(data.conversations);
+
+    if (data.conversations.length > 0) {
+      const first = data.conversations[0];
+      setActiveConversation(first);
+      const messageData = await api.getMessages(first.id);
+      if (!cancelledRef.current) {
+        setMessages(messageData.messages);
+      }
+    } else {
+      setActiveConversation(null);
+      setMessages([]);
+    }
+  }
 
   async function refreshConversations(preferredId = activeConversationId) {
     const data = await api.listConversations();
@@ -37,34 +100,46 @@ export default function App() {
   }
 
   useEffect(() => {
-    let cancelled = false;
+    const cancelledRef = { current: false };
 
     async function boot() {
       try {
         await api.health();
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setApiStatus("online");
         }
 
-        const data = await api.listConversations();
-        if (cancelled) {
+        const storedSession = readStoredSession();
+
+        if (!storedSession?.token) {
           return;
         }
 
-        setConversations(data.conversations);
+        setAuthToken(storedSession.token);
+        const profile = await api.me();
 
-        if (data.conversations.length > 0) {
-          const first = data.conversations[0];
-          setActiveConversation(first);
-          const messageData = await api.getMessages(first.id);
-          if (!cancelled) {
-            setMessages(messageData.messages);
-          }
+        if (cancelledRef.current) {
+          return;
         }
+
+        const nextSession = {
+          token: storedSession.token,
+          user: profile.user
+        };
+        setSession(nextSession);
+        writeStoredSession(nextSession);
+        await loadInitialConversations(cancelledRef);
       } catch (bootError) {
-        if (!cancelled) {
-          setApiStatus("offline");
-          setError(bootError.message);
+        if (!cancelledRef.current) {
+          if (bootError.statusCode === 401) {
+            setAuthToken("");
+            clearStoredSession();
+            setSession(null);
+          } else {
+            setApiStatus("offline");
+            setError(bootError.message);
+            setAuthError(bootError.message);
+          }
         }
       }
     }
@@ -72,9 +147,55 @@ export default function App() {
     boot();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
   }, []);
+
+  async function completeAuth(authPromise) {
+    setIsAuthenticating(true);
+    setAuthError("");
+    setError("");
+
+    try {
+      const result = await authPromise;
+      const nextSession = {
+        token: result.token,
+        user: result.user
+      };
+
+      setAuthToken(result.token);
+      setSession(nextSession);
+      writeStoredSession(nextSession);
+      setConversations([]);
+      setActiveConversation(null);
+      setMessages([]);
+      await loadInitialConversations();
+    } catch (authFailure) {
+      setAuthError(authFailure.message);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }
+
+  function handleLogin(credentials) {
+    completeAuth(api.login(credentials));
+  }
+
+  function handleRegister(payload) {
+    completeAuth(api.register(payload));
+  }
+
+  function handleLogout() {
+    setAuthToken("");
+    clearStoredSession();
+    setSession(null);
+    setConversations([]);
+    setActiveConversation(null);
+    setMessages([]);
+    setInput("");
+    setError("");
+    setAuthError("");
+  }
 
   async function handleSend(event) {
     event.preventDefault();
@@ -84,33 +205,105 @@ export default function App() {
       return;
     }
 
+    const messageSeed = Date.now();
     const tempMessage = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${messageSeed}`,
       role: "user",
       content: draft,
       createdAt: new Date().toISOString()
     };
+    const assistantMessageId = `stream-${messageSeed}`;
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+      meta: {
+        isStreaming: true,
+        streamStatus: "Đang kết nối với mô hình y tế",
+        sources: []
+      },
+      createdAt: new Date().toISOString()
+    };
+    let persistedUserMessage = false;
+    let streamedContent = "";
 
     setInput("");
     setError("");
     setIsSending(true);
-    setMessages((current) => [...current, tempMessage]);
+    setMessages((current) => [...current, tempMessage, assistantMessage]);
 
     try {
-      const result = await api.sendMessage({
+      const result = await api.streamMessage({
         message: draft,
-        conversationId: activeConversationId
+        conversationId: activeConversationId,
+        onEvent: ({ event, data }) => {
+          if (event === "conversation") {
+            persistedUserMessage = true;
+            setActiveConversation(data.conversation);
+            setConversations((current) => upsertConversation(current, data.conversation));
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === tempMessage.id ? data.userMessage : message
+              )
+            );
+          }
+
+          if (event === "status") {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      meta: {
+                        ...message.meta,
+                        streamStatus: data.message
+                      }
+                    }
+                  : message
+              )
+            );
+          }
+
+          if (event === "token") {
+            streamedContent += data.token || "";
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      content: streamedContent,
+                      meta: {
+                        ...message.meta,
+                        isStreaming: true
+                      }
+                    }
+                  : message
+              )
+            );
+          }
+        }
       });
 
-      setMessages((current) => [
-        ...current.filter((message) => message.id !== tempMessage.id),
-        ...result.messages
-      ]);
+      if (!result?.assistantMessage || !result?.conversation) {
+        throw new Error("Không nhận được kết quả stream từ backend");
+      }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId ? result.assistantMessage : message
+        )
+      );
       setActiveConversation(result.conversation);
       await refreshConversations(result.conversation.id);
     } catch (sendError) {
       setError(sendError.message);
-      setMessages((current) => current.filter((message) => message.id !== tempMessage.id));
+      setMessages((current) =>
+        current.filter(
+          (message) =>
+            message.id !== assistantMessageId &&
+            (persistedUserMessage || message.id !== tempMessage.id)
+        )
+      );
       setInput(draft);
     } finally {
       setIsSending(false);
@@ -146,10 +339,47 @@ export default function App() {
     }
   }
 
+  async function handleRenameConversation(conversationId, title) {
+    setError("");
+    try {
+      const data = await api.renameConversation(conversationId, title);
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                ...data.conversation,
+                messageCount: conversation.messageCount
+              }
+            : conversation
+        )
+      );
+
+      if (conversationId === activeConversationId) {
+        setActiveConversation(data.conversation);
+      }
+    } catch (renameError) {
+      setError(renameError.message);
+      throw renameError;
+    }
+  }
+
   const appClassName = useMemo(
     () => (apiStatus === "offline" ? "app-shell app-shell--offline" : "app-shell"),
     [apiStatus]
   );
+
+  if (!session) {
+    return (
+      <AuthPanel
+        apiStatus={apiStatus}
+        error={authError}
+        isSubmitting={isAuthenticating}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+      />
+    );
+  }
 
   return (
     <div className={appClassName}>
@@ -170,9 +400,12 @@ export default function App() {
       <Sidebar
         conversations={conversations}
         activeConversationId={activeConversationId}
+        currentUser={session.user}
         onNewChat={handleNewChat}
         onSelectConversation={loadConversation}
+        onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
+        onLogout={handleLogout}
       />
     </div>
   );

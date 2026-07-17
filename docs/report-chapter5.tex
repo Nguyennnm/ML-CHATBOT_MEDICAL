@@ -1,0 +1,243 @@
+\chapter{Xây dựng và Triển khai Ứng dụng}
+\label{chap:deployment}
+
+\section{Kiến trúc hệ thống}
+Ứng dụng được xây dựng theo kiến trúc web ba lớp, gồm giao diện người dùng ở phía trình duyệt, backend API theo mô hình MVC và dịch vụ mô hình RAG chạy tách biệt. Cách tổ chức này giúp nhóm tách rõ trách nhiệm giữa phần hiển thị, quản lý hội thoại, xác thực người dùng và suy luận mô hình. Khi mô hình hoặc địa chỉ dịch vụ RAG thay đổi, nhóm chỉ cần cập nhật lớp service ở backend mà không phải sửa giao diện.
+
+Frontend được xây dựng bằng React và Vite. Ứng dụng hoạt động như một single-page application, đảm nhiệm các chức năng đăng nhập, đăng ký, quản lý phiên người dùng, hiển thị lịch sử hội thoại, gửi câu hỏi, nhận câu trả lời realtime và hiển thị nguồn tham khảo. Giao diện chính gồm sidebar bên trái chứa thông tin tài khoản, nút tạo hội thoại mới, lịch sử hội thoại và các liên kết mở Google Maps để tìm bệnh viện, phòng khám hoặc nhà thuốc gần người dùng; khung bên phải là vùng chat cố định, trong đó danh sách tin nhắn có thể cuộn độc lập còn ô nhập câu hỏi luôn được ghim ở cuối màn hình.
+
+Backend sử dụng Node.js và Express, được tổ chức theo mô hình MVC. Tầng route định nghĩa các endpoint REST và endpoint stream; tầng controller nhận request và trả response; tầng service xử lý nghiệp vụ như xác thực, tạo hội thoại, gọi RAG API và xử lý lỗi; tầng model là nơi duy nhất truy cập SQLite. Việc tách lớp này giúp mã nguồn dễ kiểm thử và dễ thay thế thành phần lưu trữ trong tương lai.
+
+Cơ sở dữ liệu SQLite được dùng để lưu người dùng, hội thoại, tin nhắn và metadata nguồn tham khảo. Các bảng chính gồm \texttt{users}, \texttt{conversations}, \texttt{messages} và \texttt{medical\_sources}. Bảng \texttt{conversations} có trường \texttt{user\_id} để đảm bảo mỗi tài khoản chỉ nhìn thấy lịch sử hội thoại của chính mình. Bảng \texttt{messages} lưu nội dung tin nhắn người dùng và câu trả lời của chatbot; trường \texttt{meta} lưu các thông tin bổ sung như chế độ trả lời, nguồn tham khảo, trạng thái cache hoặc lỗi từ RAG API.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[node distance=8mm and 12mm, font=\small]
+        \node[process, text width=3.0cm] (user) {Người dùng\\Trình duyệt};
+        \node[process, text width=3.2cm, right=of user] (frontend) {React + Vite\\Auth, Chat UI, SSE};
+        \node[process, text width=3.3cm, right=of frontend] (backend) {Express MVC API\\Auth, Chat, Conversation};
+        \node[process, text width=3.0cm, below=of backend] (db) {SQLite\\Users, Conversations, Messages};
+        \node[process, text width=3.3cm, right=of backend] (rag) {Medical RAG API\\BM25, Reranker, LLM};
+        \draw[flow] (user) -- (frontend);
+        \draw[flow] (frontend) -- node[above, font=\footnotesize]{REST/SSE} (backend);
+        \draw[flow] (backend) -- node[right, font=\footnotesize]{read/write} (db);
+        \draw[flow] (backend) -- node[above, font=\footnotesize]{HTTP POST} (rag);
+        \draw[flow] (rag) -- (backend);
+    \end{tikzpicture}
+    \caption{Kiến trúc tổng thể của ứng dụng hỏi--đáp y tế.}
+    \label{fig:system-architecture}
+\end{figure}
+
+Luồng xử lý một câu hỏi bắt đầu từ việc người dùng đăng nhập và nhập câu hỏi trên giao diện React. Frontend gửi request đến backend kèm token xác thực. Backend kiểm tra token, xác định \texttt{user\_id}, tìm hoặc tạo hội thoại tương ứng, lưu câu hỏi của người dùng, sau đó gọi RAG API bằng payload gồm câu hỏi và \texttt{session\_id}. Khi nhận được kết quả từ RAG, backend lưu câu trả lời và metadata nguồn vào SQLite, đồng thời stream nội dung về frontend để người dùng thấy câu trả lời xuất hiện dần trong khung chat.
+
+\section{Đóng gói và tích hợp mô hình}
+Mô hình RAG không được nhúng trực tiếp vào backend Node.js mà được đóng gói thành một dịch vụ inference riêng. Backend giao tiếp với dịch vụ này thông qua HTTP API, được cài đặt trong lớp \texttt{RagApiService}. Cách tích hợp này giúp phần web không phụ thuộc trực tiếp vào môi trường GPU hoặc notebook huấn luyện. Khi nhóm chạy mô hình trên Colab/ngrok hoặc một server khác, backend chỉ cần cập nhật biến môi trường \texttt{RAG\_API\_BASE\_URL}.
+
+Endpoint backend \texttt{POST /api/chat} và \texttt{POST /api/chat/stream} nhận câu hỏi từ frontend. Sau đó backend gửi request đến RAG API tại endpoint \texttt{/api/chat}. Payload gửi đi có dạng:
+
+\begin{lstlisting}[caption={Payload backend gửi đến dịch vụ RAG}]
+{
+  "query": "Triệu chứng đau dạ dày là gì?",
+  "session_id": "conversation-id-from-sqlite"
+}
+\end{lstlisting}
+
+Kết quả trả về từ RAG API gồm câu trả lời, danh sách nguồn tham khảo và các metadata như truy vấn gốc, truy vấn đã viết lại, trạng thái cache hoặc trạng thái thành công. Backend chuẩn hóa danh sách nguồn, lưu câu trả lời vào bảng \texttt{messages} với vai trò \texttt{assistant}, sau đó trả dữ liệu cho frontend. Nếu RAG API không kết nối được, timeout hoặc trả lỗi, backend không làm hỏng luồng hội thoại mà tạo câu trả lời fallback, thông báo người dùng rằng hệ thống chưa kết nối được với mô hình Medical RAG và lưu chi tiết lỗi kỹ thuật vào metadata để nhóm dễ kiểm tra.
+
+Với giao diện realtime, backend sử dụng Server-Sent Events (SSE) tại endpoint \texttt{POST /api/chat/stream}. Các sự kiện chính gồm \texttt{conversation}, \texttt{status}, \texttt{token}, \texttt{done} và \texttt{error}. Sự kiện \texttt{conversation} trả về hội thoại và tin nhắn người dùng đã lưu; \texttt{status} cho biết trạng thái như đang truy xuất dữ liệu hoặc đang tạo câu trả lời; \texttt{token} stream từng đoạn câu trả lời; \texttt{done} trả về tin nhắn assistant hoàn chỉnh kèm nguồn tham khảo. Cơ chế này giúp người dùng không phải chờ toàn bộ request kết thúc mới thấy nội dung trả lời.
+
+Các tham số vận hành được cấu hình qua biến môi trường. Bảng~\ref{tab:deployment-env} tóm tắt các biến quan trọng.
+
+\begin{table}[H]
+\centering
+\caption{Các biến môi trường chính của backend}
+\label{tab:deployment-env}
+\begin{tabularx}{\textwidth}{p{4.2cm}Y}
+\toprule
+\textbf{Biến môi trường} & \textbf{Ý nghĩa}\\
+\midrule
+\texttt{PORT} & Cổng chạy backend Express. Ở VPS nhóm dùng cổng \texttt{18181}.\\
+\texttt{CLIENT\_ORIGIN} & Origin frontend được phép gọi API, dùng cho cấu hình CORS.\\
+\texttt{DB\_PATH} & Đường dẫn file SQLite lưu users, conversations và messages.\\
+\texttt{RAG\_API\_BASE\_URL} & URL gốc của dịch vụ Medical RAG.\\
+\texttt{RAG\_API\_TIMEOUT\_MS} & Thời gian chờ tối đa khi gọi RAG API.\\
+\texttt{AUTH\_TOKEN\_SECRET} & Khóa bí mật để ký token đăng nhập.\\
+\texttt{AUTH\_TOKEN\_TTL\_SECONDS} & Thời gian sống của token đăng nhập.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Giao diện và chức năng}
+\subsection{Xác thực và quản lý người dùng}
+Ứng dụng có màn hình đăng nhập và đăng ký trước khi vào chatbot. Người dùng đăng ký bằng họ tên, email và mật khẩu. Backend chuẩn hóa email, kiểm tra định dạng email, kiểm tra độ dài mật khẩu và từ chối email đã tồn tại. Mật khẩu không được lưu trực tiếp trong cơ sở dữ liệu; thay vào đó hệ thống dùng \texttt{crypto.pbkdf2} với salt riêng cho từng tài khoản để tạo \texttt{password\_hash}. Khi đăng nhập thành công, backend cấp token Bearer tự ký bằng HMAC SHA-256. Frontend lưu token trong \texttt{localStorage} và tự động gửi kèm header \texttt{Authorization} cho các request tiếp theo.
+
+Nhờ cơ chế này, backend có thể xác định người dùng hiện tại thông qua middleware \texttt{authenticate}. Các API quản lý hội thoại và gửi câu hỏi đều yêu cầu đăng nhập. Khi truy vấn danh sách hội thoại, backend chỉ trả về các dòng có \texttt{conversations.user\_id} bằng với tài khoản đang đăng nhập. Nếu người dùng cố truy cập trực tiếp ID hội thoại của tài khoản khác, hệ thống trả lỗi \texttt{404} thay vì lộ dữ liệu.
+
+\subsection{Các chức năng chính}
+Các chức năng đã được xây dựng gồm:
+\begin{itemize}
+    \item Đăng ký, đăng nhập và đăng xuất tài khoản.
+    \item Lưu lịch sử hội thoại riêng cho từng người dùng.
+    \item Tạo cuộc trò chuyện mới, chọn lại hội thoại cũ, đổi tên và xóa hội thoại.
+    \item Nhập câu hỏi y tế bằng tiếng Việt.
+    \item Hiển thị câu trả lời của chatbot theo dạng realtime bằng SSE.
+    \item Hiển thị nguồn tham khảo liên quan dưới mỗi câu trả lời nếu RAG API trả về nguồn.
+    \item Cảnh báo thông tin chỉ mang tính tham khảo, không thay thế chẩn đoán hoặc chỉ định điều trị của bác sĩ.
+    \item Mở Google Maps để tìm bệnh viện, phòng khám hoặc nhà thuốc gần vị trí hiện tại.
+\end{itemize}
+
+\subsection{Thiết kế giao diện}
+Giao diện được thiết kế theo hướng dashboard y tế tối giản, ưu tiên sự tin cậy và khả năng đọc. Sidebar nằm bên trái, chứa nhận diện MedQA, thông tin tài khoản, nút tạo hội thoại mới, khối mở bản đồ và danh sách lịch sử. Khung chat nằm bên phải, gồm tiêu đề hội thoại, vùng tin nhắn có thanh cuộn riêng và ô nhập câu hỏi được ghim ở cuối màn hình. Cách bố trí này giúp khi câu trả lời dài, chỉ vùng tin nhắn cuộn, còn ô nhập luôn hiển thị để người dùng tiếp tục đặt câu hỏi.
+
+Frontend sử dụng font \texttt{Be Vietnam Pro} cho chữ tiếng Việt và \texttt{IBM Plex Mono} cho các nhãn kỹ thuật ngắn. Màu chủ đạo là xanh đậm và xanh ngọc, phù hợp với ngữ cảnh y tế nhưng vẫn đủ tương phản để đọc trên màn hình. Các nút thao tác quan trọng sử dụng icon từ \texttt{lucide-react}; trạng thái focus, hover, disabled và lỗi đều được định nghĩa rõ nhằm hỗ trợ thao tác bằng bàn phím và giảm nhầm lẫn khi sử dụng.
+
+\subsection{Ảnh chụp giao diện}
+Các ảnh chụp giao diện dưới đây minh hoạ các màn hình chính của hệ thống sau khi bổ sung xác thực người dùng và gợi ý cơ sở y tế gần vị trí người dùng. Hình~\ref{fig:auth-login-screen} và Hình~\ref{fig:auth-register-screen} thể hiện luồng đăng nhập, đăng ký tài khoản; Hình~\ref{fig:chat-main-screen} thể hiện không gian hội thoại sau khi người dùng đăng nhập; Hình~\ref{fig:nearby-hospitals-screen} minh hoạ màn hình mở bản đồ để gợi ý bệnh viện gần đây.
+
+\begin{figure}[H]
+    \centering
+    \IfFileExists{figures/auth-login-screen.png}{
+        \includegraphics[width=0.95\textwidth]{figures/auth-login-screen.png}
+    }{
+        \fbox{\parbox[c][4.5cm][c]{0.95\textwidth}{\centering Chèn ảnh màn hình đăng nhập tại đây}}
+    }
+    \caption{Màn hình đăng nhập của hệ thống.}
+    \label{fig:auth-login-screen}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \IfFileExists{figures/auth-register-screen.png}{
+        \includegraphics[width=0.95\textwidth]{figures/auth-register-screen.png}
+    }{
+        \fbox{\parbox[c][4.5cm][c]{0.95\textwidth}{\centering Chèn ảnh màn hình đăng ký tại đây}}
+    }
+    \caption{Màn hình đăng ký tài khoản mới.}
+    \label{fig:auth-register-screen}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \IfFileExists{figures/chat-main-screen.png}{
+        \includegraphics[width=0.95\textwidth]{figures/chat-main-screen.png}
+    }{
+        \fbox{\parbox[c][4.5cm][c]{0.95\textwidth}{\centering Chèn ảnh màn hình chatbot tại đây}}
+    }
+    \caption{Giao diện chatbot sau khi đăng nhập, gồm sidebar lịch sử, gợi ý bản đồ và khung chat.}
+    \label{fig:chat-main-screen}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \IfFileExists{figures/nearby-hospitals-screen.png}{
+        \includegraphics[width=0.95\textwidth]{figures/nearby-hospitals-screen.png}
+    }{
+        \fbox{\parbox[c][4.5cm][c]{0.95\textwidth}{\centering Chèn ảnh màn hình gợi ý bệnh viện gần đây tại đây}}
+    }
+    \caption{Màn hình gợi ý bệnh viện gần đây thông qua Google Maps.}
+    \label{fig:nearby-hospitals-screen}
+\end{figure}
+
+\section{Triển khai}
+\subsection{Nền tảng triển khai}
+Ứng dụng được triển khai trên VPS Ubuntu 24.04. Frontend và backend chạy như hai tiến trình PM2 riêng biệt, sử dụng hai cổng riêng để không ảnh hưởng đến các dịch vụ khác đang tồn tại trên VPS. Frontend chạy ở cổng \texttt{18180}; backend API chạy ở cổng \texttt{18181}. Cơ sở dữ liệu SQLite được đặt trong thư mục dùng chung \texttt{/opt/ml-web/shared/medical\_chatbot.sqlite} để khi triển khai release mới, lịch sử người dùng và hội thoại không bị mất.
+
+Mã nguồn được đóng gói thành file nén, giải nén vào thư mục release trong \texttt{/opt/ml-web/releases/}. Symbolic link \texttt{/opt/ml-web/current} trỏ đến release hiện hành. Sau khi cài dependency bằng \texttt{npm ci}, backend chạy migration để tạo hoặc cập nhật bảng trong SQLite; frontend được build với biến \texttt{VITE\_API\_URL} trỏ đến API public. PM2 được dùng để khởi động lại hai tiến trình \texttt{ml-web-api} và \texttt{ml-web-client}, đồng thời lưu cấu hình để tự khởi động lại sau khi VPS reboot.
+
+\begin{table}[H]
+\centering
+\caption{Thông tin triển khai ứng dụng}
+\label{tab:deployment-info}
+\begin{tabularx}{\textwidth}{p{4.2cm}Y}
+\toprule
+\textbf{Thành phần} & \textbf{Thông tin}\\
+\midrule
+Hệ điều hành & Ubuntu 24.04 trên VPS\\
+Process manager & PM2\\
+Frontend & React/Vite preview tại \url{http://84.247.147.180:18180}\\
+Backend API & Express API tại \url{http://84.247.147.180:18181/api}\\
+Database & SQLite tại \texttt{/opt/ml-web/shared/medical\_chatbot.sqlite}\\
+Repository & \url{https://github.com/nhUit296/ML-web.git}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Hướng dẫn chạy local}
+Để chạy ứng dụng trên máy cá nhân, cần cài Node.js và npm. Sau đó thực hiện các lệnh trong Listing~\ref{lst:local-run}. Backend mặc định chạy tại \texttt{http://localhost:4000}, frontend chạy tại \texttt{http://localhost:5173}. Nếu dịch vụ RAG chạy ở URL khác, cần cập nhật biến \texttt{RAG\_API\_BASE\_URL} trong file \texttt{server/.env}.
+
+\begin{lstlisting}[language=bash,caption={Các lệnh chạy ứng dụng local},label={lst:local-run}]
+# 1. Clone repository
+git clone https://github.com/nhUit296/ML-web.git
+cd ML-web
+
+# 2. Cài đặt dependency cho cả frontend và backend
+npm install
+
+# 3. Tạo database SQLite và chạy migration
+npm run db:migrate
+
+# 4. Chạy frontend và backend ở chế độ development
+npm run dev
+\end{lstlisting}
+
+Ví dụ cấu hình môi trường backend:
+
+\begin{lstlisting}[language=bash,caption={Ví dụ file server/.env}]
+PORT=4000
+CLIENT_ORIGIN=http://localhost:5173
+DB_PATH=./data/medical_chatbot.sqlite
+RAG_API_BASE_URL=https://steadier-swerve-handoff.ngrok-free.dev
+RAG_API_TIMEOUT_MS=180000
+RAG_API_TLS_REJECT_UNAUTHORIZED=false
+AUTH_TOKEN_SECRET=change-this-to-a-long-random-string
+AUTH_TOKEN_TTL_SECONDS=604800
+\end{lstlisting}
+
+\subsection{Liên kết sản phẩm}
+\begin{itemize}
+    \item Repository: \url{https://github.com/nhUit296/ML-web.git}
+    \item Ứng dụng web: \url{http://84.247.147.180:18180}
+    \item Backend API health check: \url{http://84.247.147.180:18181/api/health}
+    \item Dữ liệu gốc: \url{https://huggingface.co/datasets/Dqdung205/medical_vietnamese_datasets}
+\end{itemize}
+
+\section{Kiểm thử và vận hành}
+\subsection{Kiểm thử chức năng}
+Nhóm kiểm thử các chức năng chính gồm đăng ký, đăng nhập, xác thực token, tạo hội thoại, đổi tên, xóa hội thoại, gửi câu hỏi, stream câu trả lời và hiển thị nguồn tham khảo. Với phần phân quyền dữ liệu, nhóm tạo hai tài khoản khác nhau và xác nhận tài khoản thứ hai không thấy hội thoại của tài khoản thứ nhất. Khi truy cập API \texttt{/api/conversations} không có token, backend trả mã \texttt{401}. Khi tài khoản khác cố đọc trực tiếp ID hội thoại không thuộc về mình, backend trả \texttt{404}. Kết quả này cho thấy lịch sử hội thoại đã được tách theo người dùng.
+
+\begin{table}[H]
+\centering
+\caption{Một số kiểm thử chức năng của ứng dụng}
+\label{tab:web-functional-tests}
+\begin{tabularx}{\textwidth}{p{3.2cm}p{5.1cm}Y}
+\toprule
+\textbf{Nhóm kiểm thử} & \textbf{Mô tả} & \textbf{Kết quả kỳ vọng}\\
+\midrule
+Xác thực & Đăng ký tài khoản mới bằng email và mật khẩu hợp lệ. & Tạo user mới, trả token và chuyển vào màn hình chat.\\
+Đăng nhập & Đăng nhập bằng email và mật khẩu đã đăng ký. & Trả token hợp lệ, tải đúng lịch sử của user.\\
+Phân quyền & User B gọi API đọc hội thoại của User A. & Backend trả \texttt{404}, không lộ dữ liệu.\\
+Chat realtime & Gửi câu hỏi qua \texttt{/api/chat/stream}. & Frontend nhận các sự kiện \texttt{conversation}, \texttt{status}, \texttt{token}, \texttt{done}.\\
+Nguồn tham khảo & RAG API trả về danh sách \texttt{sources}. & Giao diện hiển thị mục nguồn tham khảo dưới câu trả lời.\\
+Fallback lỗi mô hình & RAG API timeout hoặc không kết nối được. & Backend lưu câu hỏi và trả thông báo lỗi thân thiện.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Kiểm thử triển khai}
+Sau khi triển khai trên VPS, nhóm kiểm tra frontend public trả mã \texttt{200} tại \url{http://84.247.147.180:18180}, backend health check trả \texttt{\{"status":"ok"\}} tại \url{http://84.247.147.180:18181/api/health}. Endpoint \texttt{/api/conversations} khi không có token trả \texttt{401}, chứng tỏ các API hội thoại đã được bảo vệ. PM2 hiển thị hai tiến trình \texttt{ml-web-api} và \texttt{ml-web-client} ở trạng thái \texttt{online}.
+
+\subsection{Bảo mật và vận hành}
+Ở mức đồ án, hệ thống đã có các biện pháp bảo mật cơ bản: hash mật khẩu bằng PBKDF2 với salt riêng, xác thực bằng Bearer token có thời hạn, kiểm soát CORS theo \texttt{CLIENT\_ORIGIN}, giới hạn độ dài tin nhắn và tách dữ liệu hội thoại theo \texttt{user\_id}. Backend dùng middleware lỗi tập trung để tránh làm vỡ API khi RAG service gặp sự cố. Các tiến trình trên VPS được quản lý bằng PM2, có thể xem trạng thái và log bằng các lệnh:
+
+\begin{lstlisting}[language=bash,caption={Một số lệnh vận hành trên VPS}]
+pm2 list
+pm2 logs ml-web-api
+pm2 logs ml-web-client
+pm2 restart ml-web-api
+pm2 restart ml-web-client
+\end{lstlisting}
+
+Một số giới hạn vẫn còn tồn tại. SQLite phù hợp cho demo và số lượng người dùng nhỏ, nhưng chưa phải lựa chọn tối ưu cho môi trường nhiều truy cập đồng thời; khi triển khai chính thức nên cân nhắc PostgreSQL hoặc một hệ quản trị cơ sở dữ liệu có cơ chế backup và phân quyền tốt hơn. Ứng dụng hiện dùng HTTP theo địa chỉ IP và port riêng; nếu đưa vào sử dụng rộng rãi cần cấu hình domain, HTTPS, reverse proxy, rate limiting và chính sách bảo vệ dữ liệu cá nhân rõ ràng hơn.
+
+\section{Kết luận chương}
+Chương này trình bày quá trình xây dựng và triển khai ứng dụng hỏi--đáp y tế tiếng Việt dựa trên mô hình RAG. Hệ thống đã có đầy đủ các thành phần cần thiết cho một bản demo cuối kỳ: giao diện React, backend Express MVC, cơ sở dữ liệu SQLite, đăng nhập/đăng ký, phân quyền hội thoại theo người dùng, tích hợp RAG API, trả lời realtime bằng SSE và triển khai public trên VPS. Kết quả triển khai cho thấy ứng dụng có thể chạy độc lập, cho phép người dùng tạo tài khoản, đặt câu hỏi, xem câu trả lời và quản lý lịch sử hội thoại của riêng mình.

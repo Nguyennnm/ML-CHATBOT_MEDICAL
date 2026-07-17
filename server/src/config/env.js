@@ -23,5 +23,8 @@ export const env = {
   ragApiTlsRejectUnauthorized: parseBoolean(
     process.env.RAG_API_TLS_REJECT_UNAUTHORIZED,
     process.env.NODE_ENV === "production"
-  )
+  ),
+  authTokenSecret:
+    process.env.AUTH_TOKEN_SECRET || "medical-chatbot-local-development-secret",
+  authTokenTtlSeconds: Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7)
 };

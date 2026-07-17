@@ -8,6 +8,7 @@ function mapConversation(row) {
 
   return {
     id: row.id,
+    userId: row.user_id,
     title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -15,24 +16,25 @@ function mapConversation(row) {
 }
 
 export const ConversationModel = {
-  create({ title }) {
+  create({ title, userId }) {
     const id = randomUUID();
     getDb()
-      .prepare("INSERT INTO conversations (id, title) VALUES (?, ?)")
-      .run(id, title);
+      .prepare("INSERT INTO conversations (id, user_id, title) VALUES (?, ?, ?)")
+      .run(id, userId, title);
 
-    return this.findById(id);
+    return this.findById(id, userId);
   },
 
-  findAll() {
+  findAll(userId) {
     const rows = getDb()
       .prepare(
         `SELECT c.*,
           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
          FROM conversations c
+         WHERE c.user_id = ?
          ORDER BY c.updated_at DESC`
       )
-      .all();
+      .all(userId);
 
     return rows.map((row) => ({
       ...mapConversation(row),
@@ -40,29 +42,43 @@ export const ConversationModel = {
     }));
   },
 
-  findById(id) {
-    const row = getDb().prepare("SELECT * FROM conversations WHERE id = ?").get(id);
+  findById(id, userId) {
+    const row = getDb()
+      .prepare("SELECT * FROM conversations WHERE id = ? AND user_id = ?")
+      .get(id, userId);
+
     return mapConversation(row);
   },
 
-  updateTitle(id, title) {
+  updateTitle(id, userId, title) {
     getDb()
-      .prepare("UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .run(title, id);
+      .prepare(
+        `UPDATE conversations
+         SET title = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(title, id, userId);
 
-    return this.findById(id);
+    return this.findById(id, userId);
   },
 
-  touch(id) {
+  touch(id, userId) {
     getDb()
-      .prepare("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .run(id);
+      .prepare(
+        `UPDATE conversations
+         SET updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(id, userId);
 
-    return this.findById(id);
+    return this.findById(id, userId);
   },
 
-  remove(id) {
-    const result = getDb().prepare("DELETE FROM conversations WHERE id = ?").run(id);
+  remove(id, userId) {
+    const result = getDb()
+      .prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?")
+      .run(id, userId);
+
     return result.changes > 0;
   }
 };

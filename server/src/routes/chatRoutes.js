@@ -5,3 +5,4 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 export const chatRoutes = Router();
 
 chatRoutes.post("/chat", asyncHandler(ChatController.create));
+chatRoutes.post("/chat/stream", ChatController.stream);

@@ -3,6 +3,16 @@ import { getDb, closeDb } from "../config/database.js";
 const db = getDb();
 
 db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  password_salt TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -23,6 +33,9 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
   ON messages(conversation_id, created_at);
 
+CREATE INDEX IF NOT EXISTS idx_users_email
+  ON users(email);
+
 CREATE TABLE IF NOT EXISTS medical_sources (
   id TEXT PRIMARY KEY,
   question TEXT NOT NULL,
@@ -34,6 +47,18 @@ CREATE TABLE IF NOT EXISTS medical_sources (
 
 CREATE INDEX IF NOT EXISTS idx_medical_sources_question
   ON medical_sources(question);
+`);
+
+const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all();
+const hasConversationUserId = conversationColumns.some((column) => column.name === "user_id");
+
+if (!hasConversationUserId) {
+  db.exec("ALTER TABLE conversations ADD COLUMN user_id TEXT");
+}
+
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
+  ON conversations(user_id, updated_at);
 `);
 
 const row = db.prepare("SELECT COUNT(*) AS count FROM medical_sources").get();

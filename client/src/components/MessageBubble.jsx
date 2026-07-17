@@ -53,6 +53,7 @@ function SourceItem({ source, index }) {
 export function MessageBubble({ message }) {
   const isUser = message.role === "user";
   const sources = !isUser && Array.isArray(message.meta?.sources) ? message.meta.sources : [];
+  const isStreaming = !isUser && Boolean(message.meta?.isStreaming);
   const paragraphs = String(message.content || "")
     .split(/\n+/)
     .map((part) => part.trim())
@@ -63,10 +64,17 @@ export function MessageBubble({ message }) {
       <div className="message-avatar" aria-hidden="true">
         {isUser ? <UserRound size={17} /> : <Bot size={17} />}
       </div>
-      <div className="message-body">
-        {paragraphs.map((paragraph, index) => (
-          <p key={`${message.id}-${index}`}>{paragraph}</p>
-        ))}
+      <div className={isStreaming ? "message-body message-body--streaming" : "message-body"}>
+        {paragraphs.length > 0 ? (
+          paragraphs.map((paragraph, index) => <p key={`${message.id}-${index}`}>{paragraph}</p>)
+        ) : isStreaming ? (
+          <div className="streaming-placeholder">
+            <span>{message.meta?.streamStatus || "Đang trả lời"}</span>
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </div>
+        ) : null}
 
         {sources.length > 0 ? (
           <details className="message-sources">
