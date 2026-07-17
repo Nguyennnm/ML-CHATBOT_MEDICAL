@@ -1,0 +1,11 @@
+\chapter{Kết luận}
+\label{chap:conclusion}
+
+\section{Tóm tắt kết quả}
+Đồ án đã xây dựng được hệ thống hỏi--đáp y tế tiếng Việt theo hướng kết hợp dữ liệu, mô hình học máy và ứng dụng web. Nhóm đã thu thập, làm sạch và phân tích bộ dữ liệu QA y tế; triển khai ba hướng tiếp cận gồm BM25, fine-tuning Qwen2 và RAG; đồng thời so sánh kết quả theo chất lượng trả lời, khả năng bám nguồn và chi phí triển khai. Trong các hướng thử nghiệm, RAG phù hợp nhất với bài toán vì có khả năng truy xuất ngữ cảnh liên quan và trả lời kèm nguồn tham khảo. Bên cạnh phần mô hình, nhóm đã hoàn thiện ứng dụng web gồm React frontend, Express MVC backend, SQLite, đăng nhập/đăng ký, lưu lịch sử hội thoại theo tài khoản, trả lời realtime bằng SSE và gợi ý cơ sở y tế gần người dùng qua Google Maps.
+
+\section{Hạn chế}
+Hệ thống vẫn còn một số hạn chế. Dữ liệu y tế tuy có quy mô lớn nhưng chưa được thẩm định đầy đủ bởi chuyên gia, nên có thể chứa nhiễu hoặc thông tin chưa đồng nhất. Việc đánh giá mô hình còn phụ thuộc nhiều vào tập kiểm thử giới hạn và các metric tự động, chưa phản ánh hoàn toàn độ an toàn y khoa của câu trả lời. Mô hình RAG phụ thuộc vào chất lượng truy xuất và dịch vụ inference bên ngoài, vì vậy độ trễ và độ ổn định còn bị ảnh hưởng bởi môi trường chạy. Ứng dụng web hiện phù hợp cho demo học phần; nếu dùng thực tế cần bổ sung HTTPS, kiểm soát truy cập chặt hơn, backup dữ liệu và cơ chế giám sát vận hành.
+
+\section{Hướng phát triển}
+Trong tương lai, nhóm có thể mở rộng dữ liệu bằng các nguồn y tế đáng tin cậy hơn và xây dựng tập đánh giá được kiểm tra bởi chuyên gia. Về mô hình, cần cải thiện bước chunking, reranking, lọc nguồn và bổ sung guardrails để giảm nguy cơ trả lời sai hoặc vượt quá phạm vi tư vấn. Về hệ thống, có thể triển khai mô hình trên server ổn định, chuyển SQLite sang PostgreSQL khi số lượng người dùng tăng, thêm domain/HTTPS, logging, rate limiting và cơ chế sao lưu. Các cải tiến này sẽ giúp hệ thống tiến gần hơn tới một chatbot y tế có tính ứng dụng thực tế, an toàn và dễ mở rộng.
