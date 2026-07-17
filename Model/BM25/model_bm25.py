@@ -1,15 +1,16 @@
 """
-Model 1: TF-IDF/BM25 baseline using the preprocessed HuggingFace dataset.
+Model 1: BM25 baseline using the preprocessed HuggingFace dataset.
 
 This version does not preprocess the whole training corpus locally. It loads the
-`tfidf` config from `ynguyen1010/medical_vietnamese_datasets`, then fits
-retrievers on the already-preprocessed `question_processed` column.
+`tfidf` config from `ynguyen1010/medical_vietnamese_datasets`, then fits a BM25
+retriever on the already-preprocessed `question_processed` column.
 """
 
 import re
 import unicodedata
 import argparse
 import json
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,9 +19,6 @@ from typing import Dict, List, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
-from scipy.sparse import csr_matrix, load_npz, save_npz
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 try:
     from underthesea import word_tokenize
@@ -34,7 +32,7 @@ except ImportError:
 HF_REPO_ID = "ynguyen1010/medical_vietnamese_datasets"
 HF_CONFIG_NAME = "tfidf"
 HF_SPLIT = "train"
-DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "model1_tfidf_hf"
+DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "model_bm25"
 
 
 # Stopwords must match the preprocessing notebook as closely as possible.
@@ -149,7 +147,7 @@ def load_preprocessed_hf_dataset(
     split: str = HF_SPLIT,
 ) -> pd.DataFrame:
     """
-    Load the preprocessed TF-IDF dataset from HuggingFace.
+    Load the preprocessed dataset from HuggingFace.
 
     Required columns:
     - question_cleaned
@@ -180,43 +178,6 @@ def load_preprocessed_hf_dataset(
         )
 
     return df
-
-
-class TFIDFRetriever:
-    """Information retrieval using TF-IDF and cosine similarity."""
-
-    def __init__(
-        self,
-        max_features: int = 50000,
-        ngram_range: Tuple[int, int] = (1, 2),
-        min_df: int = 5,
-        max_df: float = 0.95,
-    ):
-        self.vectorizer = TfidfVectorizer(
-            max_features=max_features,
-            ngram_range=ngram_range,
-            min_df=min_df,
-            max_df=max_df,
-            token_pattern=r"(?u)\b\w+\b",
-        )
-        self.documents: List[str] = []
-        self.tfidf_matrix: Optional[csr_matrix] = None
-
-    def fit(self, documents: List[str]) -> None:
-        self.documents = [doc if isinstance(doc, str) else "" for doc in documents]
-        self.tfidf_matrix = self.vectorizer.fit_transform(self.documents)
-
-    def transform(self, texts: List[str]) -> csr_matrix:
-        return self.vectorizer.transform(texts)
-
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float]]:
-        if self.tfidf_matrix is None:
-            raise RuntimeError("TFIDFRetriever must be fitted before retrieve().")
-
-        query_vector = self.vectorizer.transform([query])
-        similarities = cosine_similarity(query_vector, self.tfidf_matrix)[0]
-        top_indices = np.argsort(similarities)[-top_k:][::-1]
-        return [(int(idx), float(similarities[idx])) for idx in top_indices]
 
 
 class BM25Retriever:
@@ -291,52 +252,6 @@ class BM25Retriever:
         return [(int(idx), float(scores[idx])) for idx in top_indices]
 
 
-class HybridRetriever:
-    """Weighted combination of TF-IDF and BM25 scores."""
-
-    def __init__(
-        self,
-        tfidf_weight: float = 0.5,
-        bm25_weight: float = 0.5,
-        tfidf_retriever: Optional[TFIDFRetriever] = None,
-        bm25_retriever: Optional[BM25Retriever] = None,
-    ):
-        self.tfidf_weight = tfidf_weight
-        self.bm25_weight = bm25_weight
-        self.tfidf_retriever = tfidf_retriever or TFIDFRetriever()
-        self.bm25_retriever = bm25_retriever or BM25Retriever()
-        self.documents: List[str] = []
-
-    def fit(self, documents: List[str]) -> None:
-        self.documents = [doc if isinstance(doc, str) else "" for doc in documents]
-        self.tfidf_retriever.fit(self.documents)
-        self.bm25_retriever.fit(self.documents)
-
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 5,
-        candidate_multiplier: int = 5,
-    ) -> List[Tuple[int, float]]:
-        candidate_k = min(
-            len(self.documents),
-            max(top_k, top_k * max(candidate_multiplier, 1)),
-        )
-
-        tfidf_results = self.tfidf_retriever.retrieve(query, top_k=candidate_k)
-        bm25_results = self.bm25_retriever.retrieve(query, top_k=candidate_k)
-
-        score_dict: Dict[int, float] = {}
-        for idx, score in tfidf_results:
-            score_dict[idx] = self.tfidf_weight * score
-
-        for idx, score in bm25_results:
-            score_dict[idx] = score_dict.get(idx, 0.0) + self.bm25_weight * score
-
-        sorted_results = sorted(score_dict.items(), key=lambda item: item[1], reverse=True)
-        return sorted_results[:top_k]
-
-
 @dataclass
 class SearchResult:
     index: int
@@ -348,7 +263,7 @@ class SearchResult:
 
 class MedicalModel1HF:
     """
-    End-to-end Model 1 retriever using the preprocessed HuggingFace dataset.
+    End-to-end BM25 retriever using the preprocessed HuggingFace dataset.
 
     Default behavior:
     - Load `ynguyen1010/medical_vietnamese_datasets`, config `tfidf`
@@ -364,9 +279,6 @@ class MedicalModel1HF:
         index_column: str = "question_processed",
         question_column: str = "question_cleaned",
         answer_column: str = "answer_cleaned",
-        method: str = "hybrid",
-        tfidf_weight: float = 0.5,
-        bm25_weight: float = 0.5,
     ):
         self.repo_id = repo_id
         self.config_name = config_name
@@ -374,13 +286,11 @@ class MedicalModel1HF:
         self.index_column = index_column
         self.question_column = question_column
         self.answer_column = answer_column
-        self.method = method.lower()
-        self.tfidf_weight = tfidf_weight
-        self.bm25_weight = bm25_weight
+        self.method = "bm25"
 
         self.df: Optional[pd.DataFrame] = None
         self.documents: List[str] = []
-        self.retriever = None
+        self.retriever: Optional[BM25Retriever] = None
 
     def load_data(self) -> pd.DataFrame:
         self.df = load_preprocessed_hf_dataset(
@@ -400,43 +310,16 @@ class MedicalModel1HF:
         self.df = self.df.dropna(subset=[self.index_column]).reset_index(drop=True)
         self.documents = self.df[self.index_column].fillna("").astype(str).tolist()
 
-        if self.method == "tfidf":
-            self.retriever = TFIDFRetriever()
-        elif self.method == "bm25":
-            self.retriever = BM25Retriever()
-        elif self.method == "hybrid":
-            self.retriever = HybridRetriever(
-                tfidf_weight=self.tfidf_weight,
-                bm25_weight=self.bm25_weight,
-            )
-        else:
-            raise ValueError("method must be one of: 'tfidf', 'bm25', 'hybrid'.")
-
+        self.retriever = BM25Retriever()
         self.retriever.fit(self.documents)
-
-    def _get_tfidf_retriever(self) -> Optional[TFIDFRetriever]:
-        if isinstance(self.retriever, TFIDFRetriever):
-            return self.retriever
-        if isinstance(self.retriever, HybridRetriever):
-            return self.retriever.tfidf_retriever
-        return None
-
-    def _get_bm25_retriever(self) -> Optional[BM25Retriever]:
-        if isinstance(self.retriever, BM25Retriever):
-            return self.retriever
-        if isinstance(self.retriever, HybridRetriever):
-            return self.retriever.bm25_retriever
-        return None
 
     def save_artifacts(self, artifact_dir: Path | str = DEFAULT_ARTIFACT_DIR) -> Path:
         """
-        Save processed data and fitted vectors/indexes to local disk.
+        Save processed data and fitted BM25 index to local disk.
 
         Files created:
         - metadata.json: model and dataset settings
-        - processed_data.pkl: HuggingFace tfidf data used by the model
-        - tfidf_vectorizer.joblib: fitted sklearn vectorizer
-        - tfidf_matrix.npz: sparse TF-IDF matrix
+        - processed_data.pkl: HuggingFace data used by the model
         - bm25_retriever.joblib: fitted BM25 index
         """
         if self.df is None or self.retriever is None:
@@ -455,26 +338,12 @@ class MedicalModel1HF:
             "question_column": self.question_column,
             "answer_column": self.answer_column,
             "method": self.method,
-            "tfidf_weight": self.tfidf_weight,
-            "bm25_weight": self.bm25_weight,
             "num_rows": int(len(self.df)),
             "num_documents": int(len(self.documents)),
+            "bm25_vocabulary_size": int(len(self.retriever.idf)),
         }
 
-        tfidf_retriever = self._get_tfidf_retriever()
-        if tfidf_retriever is not None:
-            if tfidf_retriever.tfidf_matrix is None:
-                raise RuntimeError("TF-IDF matrix is empty; fit the model first.")
-            joblib.dump(tfidf_retriever.vectorizer, artifact_path / "tfidf_vectorizer.joblib")
-            save_npz(artifact_path / "tfidf_matrix.npz", tfidf_retriever.tfidf_matrix)
-            metadata["tfidf_vocabulary_size"] = int(
-                len(tfidf_retriever.vectorizer.vocabulary_)
-            )
-
-        bm25_retriever = self._get_bm25_retriever()
-        if bm25_retriever is not None:
-            joblib.dump(bm25_retriever, artifact_path / "bm25_retriever.joblib")
-            metadata["bm25_vocabulary_size"] = int(len(bm25_retriever.idf))
+        joblib.dump(self.retriever, artifact_path / "bm25_retriever.joblib")
 
         with (artifact_path / "metadata.json").open("w", encoding="utf-8") as file:
             json.dump(metadata, file, ensure_ascii=False, indent=2)
@@ -483,12 +352,13 @@ class MedicalModel1HF:
 
     @classmethod
     def load_artifacts(cls, artifact_dir: Path | str = DEFAULT_ARTIFACT_DIR) -> "MedicalModel1HF":
-        """Load processed data and fitted vectors/indexes from local disk."""
+        """Load processed data and fitted BM25 index from local disk."""
         artifact_path = Path(artifact_dir)
         metadata_path = artifact_path / "metadata.json"
         data_path = artifact_path / "processed_data.pkl"
+        bm25_path = artifact_path / "bm25_retriever.joblib"
 
-        if not metadata_path.exists() or not data_path.exists():
+        if not metadata_path.exists() or not data_path.exists() or not bm25_path.exists():
             raise FileNotFoundError(
                 f"Cannot find saved artifacts in `{artifact_path}`. "
                 "Run the script once without --load-local to build them."
@@ -504,48 +374,20 @@ class MedicalModel1HF:
             index_column=metadata.get("index_column", "question_processed"),
             question_column=metadata.get("question_column", "question_cleaned"),
             answer_column=metadata.get("answer_column", "answer_cleaned"),
-            method=metadata.get("method", "hybrid"),
-            tfidf_weight=metadata.get("tfidf_weight", 0.5),
-            bm25_weight=metadata.get("bm25_weight", 0.5),
         )
+
+        saved_method = metadata.get("method", "bm25")
+        if saved_method != "bm25":
+            raise ValueError(f"Saved artifact method must be `bm25`, got `{saved_method}`.")
 
         model.df = pd.read_pickle(data_path)
         model.documents = model.df[model.index_column].fillna("").astype(str).tolist()
 
-        tfidf_retriever = None
-        tfidf_vectorizer_path = artifact_path / "tfidf_vectorizer.joblib"
-        tfidf_matrix_path = artifact_path / "tfidf_matrix.npz"
-        if tfidf_vectorizer_path.exists() and tfidf_matrix_path.exists():
-            tfidf_retriever = TFIDFRetriever()
-            tfidf_retriever.documents = model.documents
-            tfidf_retriever.vectorizer = joblib.load(tfidf_vectorizer_path)
-            tfidf_retriever.tfidf_matrix = load_npz(tfidf_matrix_path)
+        main_module = sys.modules.get("__main__")
+        if main_module is not None:
+            setattr(main_module, "BM25Retriever", BM25Retriever)
 
-        bm25_retriever = None
-        bm25_path = artifact_path / "bm25_retriever.joblib"
-        if bm25_path.exists():
-            bm25_retriever = joblib.load(bm25_path)
-
-        if model.method == "tfidf":
-            if tfidf_retriever is None:
-                raise FileNotFoundError("Missing TF-IDF artifacts.")
-            model.retriever = tfidf_retriever
-        elif model.method == "bm25":
-            if bm25_retriever is None:
-                raise FileNotFoundError("Missing BM25 artifacts.")
-            model.retriever = bm25_retriever
-        elif model.method == "hybrid":
-            if tfidf_retriever is None or bm25_retriever is None:
-                raise FileNotFoundError("Missing hybrid artifacts.")
-            model.retriever = HybridRetriever(
-                tfidf_weight=model.tfidf_weight,
-                bm25_weight=model.bm25_weight,
-                tfidf_retriever=tfidf_retriever,
-                bm25_retriever=bm25_retriever,
-            )
-            model.retriever.documents = model.documents
-        else:
-            raise ValueError("Saved method must be one of: 'tfidf', 'bm25', 'hybrid'.")
+        model.retriever = joblib.load(bm25_path)
 
         return model
 
@@ -577,16 +419,9 @@ class MedicalModel1HF:
 
 def build_and_save_artifacts(
     artifact_dir: Path | str = DEFAULT_ARTIFACT_DIR,
-    method: str = "hybrid",
-    tfidf_weight: float = 0.5,
-    bm25_weight: float = 0.5,
 ) -> MedicalModel1HF:
-    """Load HuggingFace data, fit vectors/indexes, and save artifacts locally."""
-    model = MedicalModel1HF(
-        method=method,
-        tfidf_weight=tfidf_weight,
-        bm25_weight=bm25_weight,
-    )
+    """Load HuggingFace data, fit BM25, and save artifacts locally."""
+    model = MedicalModel1HF()
     model.fit()
     model.save_artifacts(artifact_dir)
     return model
@@ -594,18 +429,12 @@ def build_and_save_artifacts(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Model 1 TF-IDF/BM25 using preprocessed HuggingFace data."
+        description="Run Model 1 BM25 using preprocessed HuggingFace data."
     )
     parser.add_argument(
         "--artifact-dir",
         default=str(DEFAULT_ARTIFACT_DIR),
-        help="Folder for saving/loading processed data and fitted vectors.",
-    )
-    parser.add_argument(
-        "--method",
-        choices=["tfidf", "bm25", "hybrid"],
-        default="hybrid",
-        help="Retriever type to build when loading from HuggingFace.",
+        help="Folder for saving/loading processed data and fitted BM25 index.",
     )
     parser.add_argument(
         "--load-local",
@@ -637,16 +466,16 @@ if __name__ == "__main__":
         print(f"Loading saved artifacts from: {artifact_dir}")
         model = MedicalModel1HF.load_artifacts(artifact_dir)
     else:
-        print(f"Loading HuggingFace data and fitting method={args.method}...")
-        model = MedicalModel1HF(method=args.method, tfidf_weight=0.5, bm25_weight=0.5)
+        print("Loading HuggingFace data and fitting BM25...")
+        model = MedicalModel1HF()
         model.fit()
         if not args.no_save:
             saved_dir = model.save_artifacts(artifact_dir)
-            print(f"Saved processed data and vectors to: {saved_dir}")
+            print(f"Saved processed data and BM25 index to: {saved_dir}")
 
     query_text = args.query
     print("=" * 70)
-    print("MODEL 1 - TF-IDF/BM25 WITH PREPROCESSED HUGGINGFACE DATA")
+    print("MODEL 1 - BM25 WITH PREPROCESSED HUGGINGFACE DATA")
     print(f"Dataset: {HF_REPO_ID} / config={HF_CONFIG_NAME}")
     print(f"Method : {model.method}")
     print(f"Query  : {query_text}")
