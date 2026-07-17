@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+
+# Generated model/data artifacts. Keep these local or publish via release/cloud storage.
+artifacts/
