@@ -1,4 +1,6 @@
+import ReactMarkdown from "react-markdown";
 import { Bot, ExternalLink, UserRound } from "lucide-react";
+import remarkGfm from "remark-gfm";
 
 function trimText(value, maxLength = 360) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
@@ -50,11 +52,22 @@ function SourceItem({ source, index }) {
   );
 }
 
+const markdownComponents = {
+  a({ children, href, ...props }) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" {...props}>
+        {children}
+      </a>
+    );
+  }
+};
+
 export function MessageBubble({ message }) {
   const isUser = message.role === "user";
   const sources = !isUser && Array.isArray(message.meta?.sources) ? message.meta.sources : [];
   const isStreaming = !isUser && Boolean(message.meta?.isStreaming);
-  const paragraphs = String(message.content || "")
+  const content = String(message.content || "");
+  const paragraphs = content
     .split(/\n+/)
     .map((part) => part.trim())
     .filter(Boolean);
@@ -65,8 +78,16 @@ export function MessageBubble({ message }) {
         {isUser ? <UserRound size={17} /> : <Bot size={17} />}
       </div>
       <div className={isStreaming ? "message-body message-body--streaming" : "message-body"}>
-        {paragraphs.length > 0 ? (
+        {isUser && paragraphs.length > 0 ? (
           paragraphs.map((paragraph, index) => <p key={`${message.id}-${index}`}>{paragraph}</p>)
+        ) : !isUser && content.trim() ? (
+          <ReactMarkdown
+            className="message-markdown"
+            components={markdownComponents}
+            remarkPlugins={[remarkGfm]}
+          >
+            {content}
+          </ReactMarkdown>
         ) : isStreaming ? (
           <div className="streaming-placeholder">
             <span>{message.meta?.streamStatus || "Đang trả lời"}</span>
