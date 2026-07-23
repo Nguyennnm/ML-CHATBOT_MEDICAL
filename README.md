@@ -13,11 +13,41 @@
 
 ```text
 ML-CHATBOT_MEDICAL/
-|-- client/        # Giao diện React + Vite
-|-- server/        # Máy chủ API Node.js + Express MVC
-|-- Model/         # Notebook, mã nguồn và tệp mô hình
-|-- EDA.ipynb      # Notebook phân tích dữ liệu tổng quan
-|-- package.json   # Script chạy toàn bộ dự án
+|-- client/                      # Giao diện React + Vite
+|   |-- src/
+|   |   |-- components/           # Component giao diện
+|   |   |-- lib/                  # Hàm gọi API
+|   |   |-- App.jsx               # Component chính
+|   |   |-- main.jsx              # Điểm khởi động React
+|   |   `-- styles.css            # CSS toàn cục
+|   |-- index.html
+|   |-- package.json
+|   `-- vite.config.js
+|-- server/                      # Máy chủ API Node.js + Express MVC
+|   |-- src/
+|   |   |-- config/               # Cấu hình môi trường và database
+|   |   |-- controllers/          # Xử lý request/response
+|   |   |-- database/             # Migration SQLite
+|   |   |-- middlewares/          # Middleware Express
+|   |   |-- models/               # Truy vấn dữ liệu
+|   |   |-- routes/               # Định nghĩa API routes
+|   |   |-- services/             # Logic nghiệp vụ
+|   |   |-- utils/                # Tiện ích dùng chung
+|   |   |-- app.js                # Cấu hình Express app
+|   |   `-- server.js             # Khởi động API server
+|   |-- .env.example              # Mẫu cấu hình môi trường
+|   `-- package.json
+|-- Model/                       # Notebook, mã nguồn và tệp mô hình
+|   |-- BM25/                    # Thử nghiệm BM25
+|   |-- Rag/                     # Quy trình RAG
+|   `-- Qwen2_fine_tuned/        # Fine-tuning Qwen2
+|-- docs/                        # Tài liệu báo cáo và hình minh họa
+|   |-- architecture/             # Ghi chú kiến trúc
+|   `-- figures/                 # Ảnh chụp giao diện
+|-- EDA.ipynb                    # Notebook phân tích dữ liệu tổng quan
+|-- package.json                 # Script chạy toàn bộ dự án
+|-- package-lock.json            # Khóa phiên bản dependency
+|-- .gitignore
 `-- README.md
 ```
 
@@ -52,7 +82,7 @@ Model/Qwen2_fine_tuned/                    # Fine-tuning Qwen2
 
 - Node.js 20 trở lên
 - npm 10 trở lên
-- Dịch vụ RAG API nếu muốn chatbot trả lời bằng mô hình thật
+- Dịch vụ RAG API chạy trên Google Colab nếu muốn chatbot trả lời bằng mô hình thật
 
 Nếu chưa cấu hình RAG API, máy chủ API vẫn chạy được và trả về thông báo dự phòng khi người dùng gửi câu hỏi.
 
@@ -194,6 +224,8 @@ Máy chủ API không nhúng trực tiếp mô hình vào Node.js. Mô hình RAG
 ```text
 RAG_API_BASE_URL
 ```
+
+RAG API cần được chạy riêng trên Google Colab. README này chỉ mô tả cách kết nối từ ứng dụng web; phần chuẩn bị và chạy RAG API được trình bày trong `Model/Rag/README.md`.
 
 Khi URL dịch vụ RAG thay đổi, chỉ cần cập nhật `server/.env` rồi khởi động lại máy chủ API.
 
